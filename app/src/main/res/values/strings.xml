@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="overlay_edges">
+        <item>Right</item>
+        <item>Left</item>
+        <item>Top</item>
+        <item>Bottom</item>
+    </string-array>
+    <string name="app_name">NOVA AI</string>
+    <string name="jarvis_title">NOVA AI</string>
+
+    <string name="state_idle">IDLE</string>
+    <string name="state_listening">LISTENING</string>
+    <string name="state_thinking">THINKING</string>
+    <string name="state_speaking">SPEAKING</string>
+
+    <string name="btn_on">ON</string>
+    <string name="btn_off">OFF</string>
+    <string name="status_ready">READY</string>
+    <string name="status_live">LIVE</string>
+    <string name="status_connecting">CONNECTING&#8230;</string>
+    <string name="status_disconnected">OFFLINE</string>
+
+    <string name="settings_title">SETTINGS</string>
+    <string name="api_key_label">Gemini API Key</string>
+    <string name="api_key_hint">Paste your Gemini API key</string>
+    <string name="model_label">AI Model</string>
+    <string name="voice_label">Voice</string>
+    <string name="personality_label">Personality</string>
+    <string name="username_label">User Name</string>
+    <string name="username_hint">e.g. Tony Stark, Sir, Boss (optional)</string>
+
+    <string name="chat_history_title">Conversation History</string>
+    <string name="no_history">No conversation turns yet.</string>
+    <string name="clear_history">Clear History</string>
+
+    <string name="assistant_mode">Assistant Mode</string>
+    <string name="history_label">History</string>
+    <string name="desc_mute_mic">Mute or Unmute Mic</string>
+    <string name="desc_back">Back</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_paste">Paste from clipboard</string>
+    <string name="chat_label_you">YOU</string>
+    <string name="chat_label_jarvis">NOVA AI</string>
+
+    <string name="accessibility_service_desc">Provides automation for sending WhatsApp messages and executing approved hands-free actions for NOVA AI.</string>
+    <string name="memory_title">MEMORY CORE</string>
+    <string name="memory_subtitle">Long-Term &amp; Contextual Knowledge</string>
+    <string name="search_memories">Search memories&#8230;</string>
+    <string name="add_memory">Add Memory</string>
+    <string name="no_memories">No memories recorded yet.</string>
+    <string name="category_all">All</string>
+    <string name="category_personal">Personal</string>
+    <string name="category_preferences">Preferences</string>
+    <string name="category_contacts">Contacts</string>
+    <string name="category_routines">Routines</string>
+    <string name="category_notes">Notes</string>
+
+    <string name="camera_pill_title">Camera Pill (AI Live Avatar)</string>
+    <string name="camera_pill_subtitle">Dynamic Island avatar &amp; real-time voice visualizer</string>
+    <string name="camera_pill_overlay_channel">NOVA AI Camera Pill</string>
+    <string name="camera_pill_overlay_notif_title">NOVA AI Camera Pill Active</string>
+    <string name="camera_pill_overlay_notif_text">Live avatar overlay synchronized with voice assistant</string>
+    <string name="camera_pill_grant_permission">Grant Overlay Permission</string>
+    <string name="camera_pill_preview">Preview Camera Pill</string>
+    <string name="camera_pill_stop_preview">Stop Preview</string>
+
+    <string name="saf_manager_title">Storage &amp; SAF Access</string>
+    <string name="saf_manager_subtitle">Authorize folders &amp; manage files created by NOVA AI</string>
+    <string name="voice_listening_title">Continuous Voice Listening</string>
+    <string name="voice_listening_subtitle">Automatic speech detection, silence timing &amp; noise filtering</string>
+    <string name="ai_voice_response_title">AI Voice Response</string>
+    <string name="ai_voice_response_subtitle">Speak text replies &amp; assistant voice output aloud</string>
+    <string name="voice_output_on">VOICE ON</string>
+    <string name="voice_output_off">VOICE OFF</string>
+    <string name="desc_voice_output_toggle">Toggle AI Voice Output</string>
+    <string name="dev_studio_title">App &amp; Web Dev Studio</string>
+    <string name="dev_studio_subtitle">AI Kotlin &amp; HTML Builder, Editor, Live Server &amp; Termux</string>
+    <string name="multi_provider_title">Multi-Provider API Manager</string>
+    <string name="multi_provider_subtitle">Gemini, OpenAI, Anthropic, Custom endpoints &amp; encrypted key rotation</string>
+    <string name="vision_studio_title">AI Vision Studio</string>
+    <string name="vision_studio_subtitle">Camera, Image Picker &amp; live Screen Understanding</string>
+    <string name="research_center_title">AI Knowledge &amp; Research</string>
+    <string name="research_center_subtitle">Multi-source web research, fact checking &amp; saved history</string>
+    <string name="file_manager_title">Intelligent AI File Manager</string>
+    <string name="file_manager_subtitle">SAF browser, Copy/Move, Favorites &amp; AI document/PDF analyzer</string>
+</resources>
+

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_jarvis_row_item"
+    android:padding="12dp"
+    android:layout_marginBottom="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvRuleContact"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Boss Arpon"
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="15sp"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvRuleTypeBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CUSTOM AI"
+            android:textColor="?attr/themeAccent"
+            android:background="@drawable/bg_jarvis_status_badge"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:layout_marginEnd="10dp" />
+
+        <ImageView
+            android:id="@+id/btnDeleteRule"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_edit"
+            android:padding="4dp"
+            app:tint="?attr/themeTextMuted"
+            android:background="?selectableItemBackgroundBorderless"
+            android:contentDescription="Delete Rule" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvRuleContent"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Always reply with maximum respect and mention that I will call him back shortly."
+        android:textColor="?attr/themeTextMuted"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif"
+        android:layout_marginTop="4dp" />
+</LinearLayout>

@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NOVA AI Ultra Holographic Robotic Face</title>
+<style>
+:root {
+  --bg: transparent;
+  --c-cyan: #00f0ff;
+  --c-blue: #0088ff;
+  --c-purp: #8b5cf6;
+  --c-white: #e0fbff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body {
+  height: 100%; width: 100%; overflow: hidden;
+  background: transparent !important; background-color: transparent !important;
+  padding: 0 !important; margin: 0 !important;
+  display: flex; justify-content: center; align-items: center;
+  user-select: none; -webkit-user-select: none;
+}
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+#stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+#shadow {
+  position: absolute;
+  left: 50%;
+  height: 22px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 240, 255, 0.35), rgba(0, 136, 255, 0.12), transparent);
+  filter: blur(8px);
+  animation: floatShadow 4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes floatShadow {
+  0%, 100% { opacity: 0.75; transform: translateX(-50%) scaleX(1.0); }
+  50% { opacity: 0.40; transform: translateX(-50%) scaleX(0.85); }
+}
+</style>
+</head>
+<body class="embedded">
+<div id="stage">
+  <canvas id="c"></canvas>
+  <canvas id="c2d" style="display:none"></canvas>
+  <div id="shadow"></div>
+</div>
+
+<script src="three.min.js"></script>
+<script>
+(function() {
+"use strict";
+
+const FOV = 40;
+const VIS = 3.2;
+const CRANIUM_POINTS = 1600;
+const BG_PARTICLES = 64;
+
+const STATES = {
+  idle:      { scale: 1.00, speed: 0.55, cyan: 0.95, purple: 0.35, bright: 1.15, glow: 0.75, ring: 0.35, think: 0.0, listen: 0.0, speak: 0.0 },
+  listening: { scale: 1.04, speed: 1.10, cyan: 1.00, purple: 0.20, bright: 1.35, glow: 1.10, ring: 0.70, think: 0.0, listen: 1.0, speak: 0.0 },
+  thinking:  { scale: 1.02, speed: 1.85, cyan: 0.45, purple: 1.00, bright: 1.25, glow: 1.05, ring: 1.30, think: 1.0, listen: 0.0, speak: 0.0 },
+  speaking:  { scale: 1.03, speed: 1.25, cyan: 0.98, purple: 0.65, bright: 1.40, glow: 1.15, ring: 0.85, think: 0.0, listen: 0.0, speak: 1.0 }
+};
+
+const stage = document.getElementById("stage");
+const glCanvas = document.getElementById("c");
+const d2Canvas = document.getElementById("c2d");
+const shadowEl = document.getElementById("shadow");
+
+let state = "idle";
+let themeName = "dark";
+let customThemeHex = null;
+const cur = Object.assign({}, STATES.idle);
+const tgt = Object.assign({}, STATES.idle);
+
+const extAudio = {
+  level: 0, bass: 0, high: 0, mid: 0,
+  b200: 0, b500: 0, b1k: 0, b2k: 0, b4k: 0,
+  isPlosive: false, isFricative: false
+};
+let externalAudioTime = 0;
+const audio = { level: 0, bass: 0, high: 0, mid: 0 };
+const mouth = { open: 0, width: 1.0, round: 0 };
+
+function setExternalAudio(level, bass, high, mid, b200, b500, b1k, b2k, b4k, plosive, fricative) {
+  const l = Math.max(0, Math.min(1, Number(level) || 0));
+  extAudio.level = l;
+  extAudio.bass = bass !== undefined ? Number(bass) : l * 0.75;
+  extAudio.high = high !== undefined ? Number(high) : l * 0.50;
+  extAudio.mid  = mid  !== undefined ? Number(mid)  : l * 0.85;
+  extAudio.b200 = b200 !== undefined ? Number(b200) : l * 0.8;
+  extAudio.b500 = b500 !== undefined ? Number(b500) : l * 0.7;
+  extAudio.b1k  = b1k  !== undefined ? Number(b1k)  : l * 0.6;
+  extAudio.b2k  = b2k  !== undefined ? Number(b2k)  : l * 0.5;
+  extAudio.b4k  = b4k  !== undefined ? Number(b4k)  : l * 0.4;
+  extAudio.isPlosive = plosive === 1;
+  extAudio.isFricative = fricative === 1;
+  externalAudioTime = performance.now();
+}
+
+function computeTargetViseme(nowMs) {
+  if (state !== "speaking") {
+    return { open: 0, width: 1.0, round: 0, amp: 0 };
+  }
+  const ageMs = nowMs - externalAudioTime;
+  if (ageMs > 240 || extAudio.level < 0.015) {
+    return { open: 0, width: 1.0, round: 0, amp: 0 };
+  }
+  const l = extAudio.level;
+  if (extAudio.isPlosive) {
+    return { open: 0.02, width: 0.95, round: 0.1, amp: l };
+  }
+  if (extAudio.isFricative) {
+    return { open: 0.18, width: 1.18, round: -0.1, amp: l };
+  }
+
+  const f1 = (extAudio.b200 * 0.5 + extAudio.b500 * 0.5);
+  const f2Balance = (extAudio.b1k - extAudio.b500) / (extAudio.b1k + extAudio.b500 + 0.001);
+
+  const vowelOpen = Math.min(1.0, (l * 0.6 + f1 * 0.7 + extAudio.mid * 0.4) * 1.25);
+  const spread = Math.max(0, f2Balance);
+  const round = Math.max(0, -f2Balance);
+
+  const width = 1.0 + spread * 0.22 - round * 0.20;
+  const roundWeight = round * 0.90;
+
+  return { open: vowelOpen, width: width, round: roundWeight, amp: l };
+}
+
+function stepSharedAnimation(dt, nowMs) {
+  const k = 1 - Math.exp(-dt * 4.8);
+  for (const key in cur) cur[key] += (tgt[key] - cur[key]) * k;
+  time += dt;
+  flow += dt * cur.speed;
+
+  const visTarget = computeTargetViseme(nowMs);
+  const ak = 1 - Math.exp(-dt * (visTarget.amp > audio.level ? 28 : 18));
+  const listenEnv = state === "listening" && (nowMs - externalAudioTime < 240) ? extAudio.level : 0;
+  const targetLvl = state === "speaking" ? visTarget.amp : listenEnv;
+
+  audio.level += (targetLvl - audio.level) * ak;
+  audio.bass  += ((visTarget.bass || visTarget.amp * 0.75) - audio.bass) * ak;
+  audio.high  += ((visTarget.high || visTarget.amp * 0.50) - audio.high) * ak;
+  audio.mid   += ((visTarget.mid  || visTarget.amp * 0.85) - audio.mid)  * ak;
+
+  // Asymmetric smoothing: fast attack (~45ms), slightly slower release (~100ms) with small natural variation
+  const targetOpen = visTarget.open;
+  const attackRate = 35;
+  const releaseRate = 22;
+  const mk = 1 - Math.exp(-dt * (targetOpen > mouth.open ? attackRate : releaseRate));
+
+  const jitter = (Math.sin(time * 32.0) * 0.04) * targetOpen;
+  mouth.open += ((targetOpen + jitter) - mouth.open) * mk;
+  mouth.width += (visTarget.width - mouth.width) * (1 - Math.exp(-dt * 26));
+  mouth.round += (visTarget.round - mouth.round) * (1 - Math.exp(-dt * 26));
+
+  if (mouth.open < 0.004 && targetOpen === 0) {
+    mouth.open += (0 - mouth.open) * (1 - Math.exp(-dt * 28)); // Smooth silence close within ~120ms
+  }
+
+  // Natural organic cybernetic blinking
+  if (blinkProgress < 0 && time >= nextBlinkAt) blinkProgress = 0;
+  lidScaleY = 1.0;
+  if (blinkProgress >= 0) {
+    blinkProgress += dt / 0.15;
+    if (blinkProgress >= 1.0) {
+      blinkProgress = -1;
+      nextBlinkAt = time + 2.2 + Math.random() * 2.6;
+      lidScaleY = 1.0;
+    } else {
+      lidScaleY = Math.max(0.04, 1.0 - Math.sin(blinkProgress * Math.PI) * 0.96);
+    }
+  }
+
+  // Reactive interactive gaze
+  if (time >= nextGazeShiftAt) {
+    if (state === "listening") {
+      gazeTargetX = (Math.random() - 0.5) * 0.016;
+      gazeTargetY = (Math.random() - 0.5) * 0.010;
+      nextGazeShiftAt = time + 1.0 + Math.random() * 1.2;
+    } else if (state === "thinking") {
+      gazeTargetX = (Math.random() - 0.5) * 0.038;
+      gazeTargetY = 0.012 + Math.random() * 0.018;
+      nextGazeShiftAt = time + 0.55 + Math.random() * 0.75;
+    } else if (state === "speaking") {
+      gazeTargetX = (Math.random() - 0.5) * 0.020;
+      gazeTargetY = (Math.random() - 0.5) * 0.012;
+      nextGazeShiftAt = time + 0.95 + Math.random() * 1.2;
+    } else {
+      gazeTargetX = (Math.random() - 0.5) * 0.024;
+      gazeTargetY = (Math.random() - 0.5) * 0.014;
+      nextGazeShiftAt = time + 1.8 + Math.random() * 2.2;
+    }
+  }
+  const gk = 1 - Math.exp(-dt * 8.0);
+  gazeCurX += (gazeTargetX - gazeCurX) * gk;
+  gazeCurY += (gazeTargetY - gazeCurY) * gk;
+
+  // Interactive 3D head physics with spring recovery
+  const swayY = Math.sin(time * 0.65) * (state === "listening" ? 0.05 : 0.09);
+  if (dragging) {
+    headRotY += velY * Math.min(dt * 20, 1) * 0.60;
+    headRotX = Math.max(-0.55, Math.min(0.55, headRotX + velX * Math.min(dt * 20, 1) * 0.60));
+  } else {
+    headRotY += (swayY - headRotY) * (1 - Math.exp(-dt * 2.4)) + velY * dt * 2.2;
+    headRotX *= Math.exp(-dt * 3.2);
+  }
+  velX *= Math.exp(-dt * 6.5);
+  velY *= Math.exp(-dt * 6.5);
+
+  // Update tap shockwave ripples
+  for (let i = tapRipples.length - 1; i >= 0; i--) {
+    const r = tapRipples[i];
+    r.r += dt * r.speed;
+    r.alpha = Math.max(0, 1.0 - r.r / r.maxR);
+    if (r.alpha <= 0.01) tapRipples.splice(i, 1);
+  }
+
+  return visTarget;
+}
+
+function attachDragListeners(targetCanvas) {
+  targetCanvas.addEventListener("pointerdown", e => {
+    dragging = true;
+    px = e.clientX;
+    py = e.clientY;
+    try { targetCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+    targetCanvas.style.cursor = "grabbing";
+    addRipple(e.clientX, e.clientY);
+  });
+  targetCanvas.addEventListener("pointermove", e => {
+    if (!dragging) return;
+    velY += (e.clientX - px) * 0.013;
+    velX += (e.clientY - py) * 0.013;
+    px = e.clientX;
+    py = e.clientY;
+  });
+  const endDrag = () => { dragging = false; targetCanvas.style.cursor = "grab"; };
+  targetCanvas.addEventListener("pointerup", endDrag);
+  targetCanvas.addEventListener("pointercancel", endDrag);
+}
+attachDragListeners(glCanvas);
+attachDragListeners(d2Canvas);
+
+let activeMode = "none";
+let themeUpdateHook = null;
+
+window.JarvisOrb = {
+  setState: setOrbState,
+  setTheme: n => { themeName = n || themeName; customThemeHex = null; if (themeUpdateHook) themeUpdateHook(); },
+  setBackground: hex => { customThemeHex = hex || null; if (themeUpdateHook) themeUpdateHook(); },
+  setExternalAudio: setExternalAudio,
+  startListening: () => setOrbState("listening"),
+  startThinking: () => setOrbState("thinking"),
+  startSpeaking: () => setOrbState("speaking"),
+  stopSpeaking: () => { setExternalAudio(0, 0, 0, 0); setOrbState("idle"); },
+  triggerPulse: () => addRipple(0, 0),
+  getDebugState: () => ({
+    mode: activeMode,
+    state: state,
+    mouthOpen: mouth.open,
+    mouthWidth: mouth.width,
+    audioLevel: audio.level
+  })
+};
+
+/* ============================================================================
+ *  GUARANTEED HIGH-FIDELITY 2D CANVAS CYBERNETIC ROBOTIC FACE (ULTRA CRISP)
+ * ============================================================================ */
+function startCanvas2DFallback() {
+  if (activeMode === "2d") return;
+  activeMode = "2d";
+  glCanvas.style.display = "none";
+  d2Canvas.style.display = "block";
+  const ctx = d2Canvas.getContext("2d");
+  if (!ctx) return;
+
+  // Build Volumetric Skull Geometry
+  const skullPts = [];
+  for (let i = 0; i < 520; i++) {
+    const t = (i + 0.5) / 520;
+    const phi = Math.acos(1 - 2 * t);
+    const theta = i * 2.3999632;
+    let nx = Math.sin(phi) * Math.cos(theta);
+    let ny = Math.cos(phi);
+    let nz = Math.sin(phi) * Math.sin(theta);
+    if (nz < -0.12) continue;
+    let sx = 0.74, sy = 0.98, sz = 0.78;
+    if (ny < 0) {
+      const jt = Math.min(1, -ny);
+      sx *= (1 - 0.38 * Math.pow(jt, 1.2));
+      sz *= (1 - 0.26 * Math.pow(jt, 1.1));
+    }
+    if (Math.abs(nx) > 0.14 && Math.abs(nx) < 0.52 && ny > 0.05 && ny < 0.34) sz -= 0.08;
+    if (Math.abs(nx) < 0.32 && ny > -0.58 && ny < -0.24) sz -= 0.05;
+    skullPts.push({ x: nx * sx, y: ny * sy + 0.02, z: nz * sz, rnd: (i * 0.6180339) % 1 });
+  }
+
+  // Structural Cyber Facet Lines
+  const lines = [];
+  const seg = (x1,y1,z1, x2,y2,z2) => lines.push([x1,y1,z1, x2,y2,z2]);
+  const mseg = (x1,y1,z1, x2,y2,z2) => { seg(x1,y1,z1, x2,y2,z2); seg(-x1,y1,z1, -x2,y2,z2); };
+  
+  // Crown crest & temple lines
+  seg(0, 0.98, 0.14, 0, 0.64, 0.58);
+  mseg(0, 0.98, 0.14, 0.36, 0.86, 0.32);
+  mseg(0.36, 0.86, 0.32, 0.60, 0.56, 0.28);
+  mseg(0.60, 0.56, 0.28, 0.70, 0.18, 0.14);
+  
+  // Brow ridge & cheek armor plates
+  mseg(0, 0.38, 0.64, 0.18, 0.40, 0.62);
+  mseg(0.18, 0.40, 0.62, 0.46, 0.36, 0.50);
+  mseg(0.46, 0.36, 0.50, 0.66, 0.24, 0.28);
+  mseg(0.66, 0.24, 0.28, 0.60, -0.10, 0.36);
+  mseg(0.60, -0.10, 0.36, 0.30, -0.14, 0.58);
+  
+  // Nose bridge & central sensor ridge
+  seg(0, 0.38, 0.64, 0, -0.12, 0.74);
+  mseg(0, 0.38, 0.64, 0.09, 0.15, 0.66);
+  mseg(0.09, 0.15, 0.66, 0.12, -0.14, 0.64);
+  mseg(0.12, -0.14, 0.64, 0, -0.18, 0.70);
+
+  const particles = Array.from({ length: 48 }, (_, i) => ({
+    a: (i / 48) * Math.PI * 2,
+    r: 1.15 + (i % 5) * 0.14,
+    sp: (0.12 + (i % 7) * 0.035) * (i % 2 ? 1 : -1),
+    y: ((i % 11) / 10 - 0.5) * 1.9,
+    ph: i * 0.75
+  }));
+
+  function proj(x, y, z, cx, cy, scale) {
+    const cy1 = Math.cos(headRotY), sy1 = Math.sin(headRotY);
+    const cx1 = Math.cos(headRotX), sx1 = Math.sin(headRotX);
+    const rx = x * cy1 + z * sy1;
+    const rz1 = -x * sy1 + z * cy1;
+    const ry = y * cx1 - rz1 * sx1;
+    const rz = y * sx1 + rz1 * cx1;
+    const p = 5.4 / Math.max(1.5, 5.4 - rz);
+    return { x: cx + rx * scale * p, y: cy - ry * scale * p, z: rz, p };
+  }
+
+  let W = 320, H = 320, PR = 1;
+  function resize2d() {
+    W = Math.max(stage.clientWidth || window.innerWidth || 320, 64);
+    H = Math.max(stage.clientHeight || window.innerHeight || 320, 64);
+    PR = Math.min(window.devicePixelRatio || 1, 2);
+    d2Canvas.width = Math.round(W * PR);
+    d2Canvas.height = Math.round(H * PR);
+    shadowEl.style.width = Math.round(Math.min(W, H) * 0.52) + "px";
+    shadowEl.style.top = Math.round(H / 2 + Math.min(W, H) * 0.38) + "px";
+  }
+  window.addEventListener("resize", resize2d);
+  if (window.ResizeObserver) new ResizeObserver(resize2d).observe(stage);
+  resize2d();
+
+  let last = performance.now();
+  function frame2d(now) {
+    requestAnimationFrame(frame2d);
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    const vis = stepSharedAnimation(dt, now);
+
+    ctx.setTransform(PR, 0, 0, PR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const cx = W * 0.5;
+    const cy = H * 0.5 - Math.sin(time * 1.45) * 4;
+    const headScale = cur.scale * (1 + 0.009 * Math.sin(time * 1.4) + (state === "speaking" ? audio.level * 0.022 : 0));
+    const unit = Math.min(W, H) * 0.37 * headScale;
+
+    // Glowing Holographic Projection Chamber Disc
+    const discR = unit * 1.42;
+    const bgGrad = ctx.createRadialGradient(cx, cy, discR * 0.05, cx, cy, discR);
+    bgGrad.addColorStop(0, "rgba(4, 16, 38, 0.94)");
+    bgGrad.addColorStop(0.70, "rgba(2, 10, 24, 0.90)");
+    bgGrad.addColorStop(0.94, "rgba(0, 240, 255, 0.28)");
+    bgGrad.addColorStop(1, "rgba(0, 240, 255, 0)");
+    ctx.fillStyle = bgGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+
+    // Dynamic Concentric Gyro HUD Rings
+    const ringCol = cur.think > 0.4 ? "rgba(168, 85, 247, 0.85)" : "rgba(0, 240, 255, 0.85)";
+    ctx.strokeStyle = ringCol;
+    ctx.lineWidth = 2.4;
+    for (let s = 0; s < 4; s++) {
+      const a0 = time * (0.35 + cur.ring * 0.8) + s * (Math.PI * 0.5);
+      ctx.beginPath();
+      ctx.arc(cx, cy, unit * 1.25, a0, a0 + Math.PI * 0.30);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(0, 136, 255, 0.60)";
+    ctx.lineWidth = 1.8;
+    for (let s = 0; s < 6; s++) {
+      const a0 = -time * (0.25 + cur.ring * 0.6) + s * (Math.PI / 3);
+      ctx.beginPath();
+      ctx.arc(cx, cy, unit * 1.34, a0, a0 + Math.PI * 0.18);
+      ctx.stroke();
+    }
+
+    // Interactive Shockwave Energy Pulses
+    for (let i = 0; i < tapRipples.length; i++) {
+      const r = tapRipples[i];
+      ctx.strokeStyle = `rgba(0, 240, 255, ${r.alpha * 0.85})`;
+      ctx.lineWidth = 3.0 * r.alpha;
+      ctx.beginPath();
+      ctx.arc(cx, cy, unit * r.r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Volumetric Cyber Skull Point Cloud
+    for (let i = 0; i < skullPts.length; i++) {
+      const pt = skullPts[i];
+      const pr = proj(pt.x, pt.y, pt.z, cx, cy, unit);
+      const alpha = Math.max(0.20, Math.min(0.95, (pt.z + 0.35) * 0.82));
+      ctx.fillStyle = pt.rnd > 0.70 && cur.purple > 0.3
+        ? `rgba(168, 85, 247, ${alpha * 0.90})`
+        : (pt.rnd > 0.35 ? `rgba(0, 240, 255, ${alpha})` : `rgba(0, 136, 255, ${alpha * 0.85})`);
+      ctx.fillRect(pr.x - 1.3, pr.y - 1.3, 2.7, 2.7);
+    }
+
+    // Luminous Cyber Armor Contours
+    ctx.strokeStyle = state === "thinking" ? "rgba(168, 85, 247, 0.88)" : "rgba(0, 240, 255, 0.88)";
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    for (let i = 0; i < lines.length; i++) {
+      const L = lines[i];
+      const p1 = proj(L[0], L[1], L[2], cx, cy, unit);
+      const p2 = proj(L[3], L[4], L[5], cx, cy, unit);
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+    }
+    ctx.stroke();
+
+    // Articulated Jaw Frame with Audio Motion
+    const jawOffY = -mouth.open * 0.055;
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.90)";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    [
+      [-0.38, -0.36, 0.42, -0.28, -0.74, 0.52], [0.38, -0.36, 0.42, 0.28, -0.74, 0.52],
+      [-0.28, -0.74, 0.52, -0.10, -0.84, 0.58], [0.28, -0.74, 0.52, 0.10, -0.84, 0.58],
+      [-0.10, -0.84, 0.58, 0.10, -0.84, 0.58]
+    ].forEach(L => {
+      const p1 = proj(L[0], L[1] + jawOffY, L[2], cx, cy, unit);
+      const p2 = proj(L[3], L[4] + jawOffY, L[5], cx, cy, unit);
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+    });
+    ctx.stroke();
+
+    // High-Tech Glowing Robotic Optics (Eyes with Reticle & Pupils)
+    [-1, 1].forEach(side => {
+      const ex = side * 0.28, ey = 0.16, ez = 0.58;
+      const frame = [[-0.15,0.03],[-0.07,0.075],[0.085,0.068],[0.15,0.008],[0.11,-0.06],[-0.085,-0.062]];
+      ctx.strokeStyle = state === "thinking" ? "#a855f7" : "#00f0ff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      frame.forEach((pt, idx) => {
+        const p = proj(ex + pt[0] * side, ey + pt[1], ez, cx, cy, unit);
+        if (idx === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+
+      const ec = proj(ex, ey, ez + 0.02, cx, cy, unit);
+      const rEye = unit * 0.078 * ec.p;
+      ctx.save();
+      ctx.translate(ec.x, ec.y);
+      ctx.scale(1, lidScaleY);
+
+      // Radial Optic Aura
+      const g = ctx.createRadialGradient(0, 0, rEye * 0.1, 0, 0, rEye * 2.4);
+      g.addColorStop(0, "rgba(224, 251, 255, 0.98)");
+      g.addColorStop(0.35, state === "thinking" ? "rgba(168, 85, 247, 0.85)" : "rgba(0, 240, 255, 0.88)");
+      g.addColorStop(1, "rgba(0, 136, 255, 0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, rEye * 2.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Outer Lens Reticle Ring
+      ctx.strokeStyle = "#00f0ff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, rEye, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Scanning Target Arc
+      const scanA = time * side * (0.8 + cur.think * 3.8 + cur.listen * 1.4);
+      ctx.strokeStyle = state === "thinking" ? "#a855f7" : "#38bdf8";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, rEye * 1.30, scanA, scanA + Math.PI * 1.15);
+      ctx.stroke();
+
+      // Core Pupil (Tracks Gaze)
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(gazeCurX * unit * 0.90, -gazeCurY * unit * 0.90, rEye * 0.46, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+
+    // Articulated Vocal Acoustic Synthesizer Mouth + Equalizer Spectrum Bars
+    const openAmt = mouth.open;
+    const halfW = 0.20 * mouth.width;
+    const maxGap = openAmt * 0.105;
+    const my = -0.38, mz = 0.60;
+
+    const upPts = [], loPts = [];
+    for (let i = 0; i <= 24; i++) {
+      const normX = (i / 24) * 2 - 1;
+      const arch = Math.cos(normX * Math.PI * 0.5);
+      const cupid = Math.abs(normX) < 0.35 ? -0.007 * (1 - Math.abs(normX) / 0.35) : 0;
+      const lift = Math.pow(Math.abs(normX), 2.2) * 0.016;
+      const x = normX * halfW;
+      const z = mz - Math.pow(Math.abs(normX), 2) * 0.055;
+      upPts.push(proj(x, my + lift + cupid + arch * maxGap * 0.38, z, cx, cy, unit));
+      loPts.push(proj(x, my + lift - arch * maxGap * (0.95 + mouth.round * 0.28), z, cx, cy, unit));
+    }
+
+    ctx.strokeStyle = "#00f0ff";
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    upPts.forEach((p, idx) => idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    ctx.strokeStyle = "#009dff";
+    ctx.lineWidth = 2.8;
+    ctx.beginPath();
+    loPts.forEach((p, idx) => idx === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    // 13 High-Tech Voice Frequency Equalizer Bars
+    const EQ_COUNT = 13;
+    const baseAudio = state === "speaking" ? vis.amp : (state === "listening" ? audio.level : 0.04);
+    for (let i = 0; i < EQ_COUNT; i++) {
+      const nx = (i - (EQ_COUNT - 1) / 2) / ((EQ_COUNT - 1) / 2);
+      const env = Math.cos(nx * Math.PI * 0.5);
+      const microSine = 0.85 + 0.15 * Math.sin(time * 18.0 + i * 0.8);
+      const bh = (openAmt * 0.10 + baseAudio * 0.08) * env * microSine;
+      const pTop = proj(nx * 0.165, my - openAmt * 0.024 + bh * 0.5, mz, cx, cy, unit);
+      const pBot = proj(nx * 0.165, my - openAmt * 0.024 - bh * 0.5, mz, cx, cy, unit);
+      ctx.strokeStyle = i % 2 === 0 ? "#00f0ff" : "#a855f7";
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.moveTo(pTop.x, pTop.y);
+      ctx.lineTo(pBot.x, pBot.y);
+      ctx.stroke();
+    }
+
+    // Ambient Swirling Quantum Particles
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      p.a += p.sp * dt * (0.7 + cur.speed);
+      const px3 = Math.cos(p.a) * p.r;
+      const pz3 = Math.sin(p.a) * p.r * 0.55 - 0.15;
+      const pp = proj(px3, p.y * 0.85, pz3, cx, cy, unit);
+      const pa = 0.35 + 0.55 * Math.sin(time * 2.2 + p.ph);
+      ctx.fillStyle = i % 3 === 0 ? `rgba(0, 240, 255, ${pa})` : (i % 3 === 1 ? `rgba(0, 136, 255, ${pa})` : `rgba(168, 85, 247, ${pa})`);
+      ctx.beginPath();
+      ctx.arc(pp.x, pp.y, 2.0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+  requestAnimationFrame(frame2d);
+}
+
+/* ============================================================================
+ *  PRIMARY ENGINE: THREE.JS WEBGL 3D HOLOGRAPHIC ROBOTIC FACE (GPU ACCELERATED)
+ * ============================================================================ */
+if (typeof THREE === "undefined") {
+  startCanvas2DFallback();
+  return;
+}
+
+let renderer = null;
+const optsList = [
+  { canvas: glCanvas, antialias: true, alpha: true, powerPreference: "high-performance" },
+  { canvas: glCanvas, antialias: true, alpha: true },
+  { canvas: glCanvas, antialias: false, alpha: true }
+];
+
+for (let i = 0; i < optsList.length; i++) {
+  try {
+    renderer = new THREE.WebGLRenderer(optsList[i]);
+    if (renderer && renderer.getContext()) break;
+  } catch (_) {
+    renderer = null;
+  }
+}
+
+if (!renderer || !renderer.getContext()) {
+  startCanvas2DFallback();
+  return;
+}
+
+glCanvas.addEventListener("webglcontextlost", function(e) {
+  e.preventDefault();
+  startCanvas2DFallback();
+}, false);
+
+try {
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 60);
+  camera.position.set(0, 0, 6.2);
+
+  const U = {
+    uTime:   { value: 0 },
+    uAmp:    { value: 0 },
+    uBass:   { value: 0 },
+    uHigh:   { value: 0 },
+    uMid:    { value: 0 },
+    uCyan:   { value: 0.95 },
+    uPurple: { value: 0.35 },
+    uBright: { value: 1.15 },
+    uPx:     { value: 300 },
+    uCamZ:   { value: 6.2 },
+    uThink:  { value: 0 },
+    uListen: { value: 0 },
+    DEEP:    { value: new THREE.Color(0x041026) },
+    BLUE:    { value: new THREE.Color(0x0088ff) },
+    CYAN:    { value: new THREE.Color(0x00f0ff) },
+    PURP:    { value: new THREE.Color(0x8b5cf6) }
+  };
+
+  /* High-Contrast Holographic Backdrop Disc */
+  const holoBackdropMat = new THREE.ShaderMaterial({
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform float uTime, uGlow, uThink, uListen, uAmp;
+      uniform vec3 DEEP, BLUE, CYAN, PURP;
+      void main() {
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        float mask = smoothstep(1.0, 0.70, r);
+        float core = exp(-r * r * 2.2);
+        float grid = 0.05 * (0.5 + 0.5 * sin(p.y * 46.0 - uTime * 2.8));
+        float rim = exp(-abs(r - 0.88) * 26.0) * 0.75;
+        vec3 bgCol = mix(vec3(0.015, 0.04, 0.09), DEEP * 0.75, core);
+        vec3 rimCol = mix(CYAN, PURP, uThink * 0.75 + 0.15 * sin(uTime + atan(p.y, p.x) * 2.0));
+        vec3 col = bgCol + BLUE * core * (0.35 + uAmp * 0.25) + rimCol * (rim * (0.85 + uGlow * 0.6) + grid * core);
+        float alpha = clamp(mask * (0.94 + rim * 0.25), 0.0, 0.98);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    uniforms: {
+      uTime: U.uTime, uGlow: { value: 0.75 }, uThink: U.uThink, uListen: U.uListen,
+      uAmp: U.uAmp, DEEP: U.DEEP, BLUE: U.BLUE, CYAN: U.CYAN, PURP: U.PURP
+    }
+  });
+  const holoBackdrop = new THREE.Mesh(new THREE.PlaneGeometry(VIS * 0.98, VIS * 0.98), holoBackdropMat);
+  holoBackdrop.position.z = -1.25;
+  holoBackdrop.renderOrder = -5;
+  scene.add(holoBackdrop);
+
+  /* Dual Concentric Gyro HUD Rings */
+  function createHudRing(r0, r1, segs, seed, baseAlpha) {
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: "varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+      fragmentShader: `
+        varying vec2 vP;
+        uniform float uAlpha, uSeed, uSegs, uTime, uThink;
+        uniform vec3 BLUE, CYAN, PURP;
+        void main() {
+          float a = atan(vP.y, vP.x);
+          float dash = smoothstep(-0.16, 0.22, sin(a * uSegs + uSeed));
+          float arc = smoothstep(-0.72, -0.08, sin(a * 1.0 + uSeed * 0.7 + uTime * 0.45));
+          vec3 col = mix(CYAN, BLUE, 0.42 + 0.42 * sin(a * 2.0 + uSeed));
+          col = mix(col, PURP, uThink * 0.75);
+          gl_FragColor = vec4(col, dash * arc * uAlpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uAlpha: { value: baseAlpha }, uSeed: { value: seed }, uSegs: { value: segs },
+        uTime: U.uTime, uThink: U.uThink, BLUE: U.BLUE, CYAN: U.CYAN, PURP: U.PURP
+      }
+    });
+    const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 144, 1), mat);
+    m.position.z = -0.35;
+    scene.add(m);
+    return m;
+  }
+  const ring1 = createHudRing(1.22, 1.250, 4.0, 0.0, 0.75);
+  const ring2 = createHudRing(1.31, 1.335, 6.0, 1.9, 0.55);
+
+  /* Head Root Assembly */
+  const headGroup = new THREE.Group();
+  scene.add(headGroup);
+
+  /* Volumetric Cybernetic Cranium Point Cloud */
+  (function buildCraniumPoints() {
+    const pos = new Float32Array(CRANIUM_POINTS * 3);
+    const rnd = new Float32Array(CRANIUM_POINTS);
+    const faceRegion = new Float32Array(CRANIUM_POINTS);
+    for (let i = 0; i < CRANIUM_POINTS; i++) {
+      const t = (i + 0.5) / CRANIUM_POINTS;
+      const phi = Math.acos(1 - 2 * t);
+      const theta = i * 2.3999632;
+      let nx = Math.sin(phi) * Math.cos(theta);
+      let ny = Math.cos(phi);
+      let nz = Math.sin(phi) * Math.sin(theta);
+
+      let sx = 0.73, sy = 0.97, sz = 0.77;
+      if (ny < 0.0) {
+        const jawT = Math.min(1, -ny);
+        sx *= (1.0 - 0.38 * Math.pow(jawT, 1.25));
+        sz *= (1.0 - 0.25 * Math.pow(jawT, 1.1));
+      }
+      if (nz > 0.15) {
+        if (Math.abs(nx) > 0.14 && Math.abs(nx) < 0.52 && ny > 0.05 && ny < 0.34) sz -= 0.09;
+        if (Math.abs(nx) < 0.32 && ny > -0.58 && ny < -0.24) sz -= 0.05;
+        if (Math.abs(nx) < 0.08 && ny > -0.22 && ny < 0.22) sz += 0.08 * (1.0 - Math.abs(nx) / 0.08);
+      }
+      if (nz < -0.35) nz *= 0.65;
+
+      const shellJitter = 0.97 + 0.03 * Math.random();
+      pos[i * 3]     = nx * sx * shellJitter;
+      pos[i * 3 + 1] = ny * sy * shellJitter + 0.03;
+      pos[i * 3 + 2] = nz * sz * shellJitter;
+      rnd[i] = Math.random();
+      faceRegion[i] = (nz > 0.25 && (Math.abs(ny - 0.26) < 0.10 || Math.abs(ny + 0.08) < 0.10)) ? 1.0 : 0.0;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("aRnd", new THREE.BufferAttribute(rnd, 1));
+    geo.setAttribute("aEdge", new THREE.BufferAttribute(faceRegion, 1));
+
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: `
+        attribute float aRnd, aEdge;
+        uniform float uTime, uAmp, uCyan, uPurple, uBright, uPx, uThink;
+        uniform vec3 DEEP, BLUE, CYAN, PURP;
+        varying vec3 vC;
+        varying float vA;
+        void main() {
+          vec3 p = position;
+          float wave = sin(p.y * 7.5 - uTime * 2.4) * 0.5 + 0.5;
+          float pulse = 1.0 + uAmp * 0.035 * aRnd + 0.010 * sin(uTime * 1.9 + aRnd * 12.0);
+          p *= pulse;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          float front = smoothstep(-0.35, 0.85, p.z);
+          vA = mix(0.25, 0.98, front) * (0.75 + 0.25 * aEdge);
+          vec3 col = mix(BLUE, CYAN, (0.40 + 0.60 * front) * uCyan);
+          col = mix(col, PURP, (aRnd * 0.45 + uThink * 0.55) * uPurple);
+          col += CYAN * wave * 0.20 * front;
+          vC = col * uBright;
+          gl_PointSize = max((0.018 + aRnd * 0.018 + aEdge * 0.010) * uPx / (-mv.z), 2.2);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vC;
+        varying float vA;
+        void main() {
+          float d = length(gl_PointCoord - 0.5);
+          float a = smoothstep(0.5, 0.04, d) * vA;
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(vC, a);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: U
+    });
+    const pts = new THREE.Points(geo, mat);
+    pts.frustumCulled = false;
+    pts.renderOrder = 2;
+    headGroup.add(pts);
+  })();
+
+  /* High-DPI Volumetric Armor Tubes */
+  function addTubeChain(pointsArr, radius, colorHex, opacity, renderOrder) {
+    const group = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const curve = new THREE.CatmullRomCurve3(pointsArr.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+    const geo = new THREE.TubeGeometry(curve, Math.max(8, pointsArr.length * 6), radius, 6, false);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = renderOrder || 4;
+    group.add(mesh);
+    return { mesh, mat };
+  }
+
+  function addLineSegments(verts, colorHex, opacity, renderOrder) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+    const mat = new THREE.LineBasicMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const lines = new THREE.LineSegments(geo, mat);
+    lines.renderOrder = renderOrder || 3;
+    return lines;
+  }
+
+  const headWireframe = (function buildHeadStructure() {
+    const v = [];
+    const seg = (x1,y1,z1, x2,y2,z2) => v.push(x1,y1,z1, x2,y2,z2);
+    const mirrorSeg = (x1,y1,z1, x2,y2,z2) => { seg(x1,y1,z1, x2,y2,z2); seg(-x1,y1,z1, -x2,y2,z2); };
+
+    seg(0, 0.98, 0.14, 0, 0.62, 0.56);
+    mirrorSeg(0, 0.98, 0.14, 0.34, 0.84, 0.32);
+    mirrorSeg(0.34, 0.84, 0.32, 0.58, 0.54, 0.28);
+    mirrorSeg(0.58, 0.54, 0.28, 0.68, 0.18, 0.14);
+    mirrorSeg(0, 0.36, 0.62, 0.16, 0.38, 0.60);
+    mirrorSeg(0.16, 0.38, 0.60, 0.44, 0.34, 0.48);
+    mirrorSeg(0.44, 0.34, 0.48, 0.64, 0.24, 0.26);
+    mirrorSeg(0.64, 0.24, 0.26, 0.58, -0.10, 0.34);
+    mirrorSeg(0.58, -0.10, 0.34, 0.28, -0.14, 0.56);
+    mirrorSeg(0.58, -0.10, 0.34, 0.66, -0.22, 0.08);
+    mirrorSeg(0.68, 0.18, 0.14, 0.74, 0.04, -0.04);
+    seg(0, 0.36, 0.62, 0, -0.12, 0.72);
+    mirrorSeg(0, 0.36, 0.62, 0.08, 0.14, 0.64);
+    mirrorSeg(0.08, 0.14, 0.64, 0.11, -0.14, 0.62);
+    mirrorSeg(0.11, -0.14, 0.62, 0, -0.18, 0.68);
+    mirrorSeg(0.58, -0.10, 0.34, 0.44, -0.52, 0.32);
+    mirrorSeg(0.44, -0.52, 0.32, 0.22, -0.78, 0.46);
+    mirrorSeg(0.22, -0.78, 0.46, 0, -0.84, 0.52);
+
+    // Bold luminous armor contours
+    headGroup.add(addTubeChain([[0, 0.98, 0.14], [0, 0.62, 0.56], [0, 0.36, 0.62], [0, -0.12, 0.72]], 0.009, 0x00f0ff, 0.85, 4).mesh);
+    [-1, 1].forEach(s => {
+      headGroup.add(addTubeChain([[0, 0.36, 0.62], [0.16 * s, 0.38, 0.60], [0.44 * s, 0.34, 0.48], [0.64 * s, 0.24, 0.26]], 0.011, 0x00e5ff, 0.92, 4).mesh);
+      headGroup.add(addTubeChain([[0.64 * s, 0.24, 0.26], [0.58 * s, -0.10, 0.34], [0.44 * s, -0.52, 0.32], [0.22 * s, -0.78, 0.46], [0, -0.84, 0.52]], 0.010, 0x009dff, 0.85, 4).mesh);
+      headGroup.add(addTubeChain([[0, 0.98, 0.14], [0.34 * s, 0.84, 0.32], [0.58 * s, 0.54, 0.28], [0.68 * s, 0.18, 0.14]], 0.009, 0x8b5cf6, 0.75, 4).mesh);
+    });
+
+    const lines = addLineSegments(v, 0x00d8ff, 0.75, 3);
+    headGroup.add(lines);
+    return lines;
+  })();
+
+  /* Articulated Lower Jaw */
+  const jawGroup = new THREE.Group();
+  jawGroup.position.set(0, -0.28, 0.15);
+  headGroup.add(jawGroup);
+  (function buildJawFrame() {
+    const v = [];
+    const seg = (x1,y1,z1, x2,y2,z2) => v.push(x1,y1,z1, x2,y2,z2);
+    const mirrorSeg = (x1,y1,z1, x2,y2,z2) => { seg(x1,y1,z1, x2,y2,z2); seg(-x1,y1,z1, -x2,y2,z2); };
+    mirrorSeg(0.36, -0.08, 0.26, 0.26, -0.44, 0.36);
+    mirrorSeg(0.26, -0.44, 0.36, 0.10, -0.54, 0.42);
+    seg(-0.10, -0.54, 0.42, 0.10, -0.54, 0.42);
+    mirrorSeg(0.18, -0.34, 0.43, 0.08, -0.44, 0.46);
+    jawGroup.add(addLineSegments(v, 0x38bdf8, 0.80, 3));
+    jawGroup.add(addTubeChain([[-0.36, -0.08, 0.26], [-0.26, -0.44, 0.36], [-0.10, -0.54, 0.42], [0.10, -0.54, 0.42], [0.26, -0.44, 0.36], [0.36, -0.08, 0.26]], 0.010, 0x38bdf8, 0.88, 4).mesh);
+  })();
+
+  /* High-Tech Glowing Robotic Optics (Eyes with Multi-Layer Reticle) */
+  function createRoboticEye(sideSign) {
+    const eyeRoot = new THREE.Group();
+    eyeRoot.position.set(sideSign * 0.275, 0.16, 0.575);
+    eyeRoot.rotation.y = sideSign * 0.16;
+
+    const pts = [
+      [-0.145, 0.025, 0.01], [-0.07, 0.068, 0.01], [0.085, 0.062, 0.01],
+      [0.145, 0.005, 0.01], [0.105, -0.056, 0.01], [-0.085, -0.058, 0.01], [-0.145, 0.025, 0.01]
+    ];
+    const frameTube = addTubeChain(pts, 0.0085, 0x00f0ff, 0.98, 5);
+    eyeRoot.add(frameTube.mesh);
+
+    const lidGroup = new THREE.Group();
+    eyeRoot.add(lidGroup);
+
+    const irisRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.048, 0.076, 36),
+      new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.98, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false })
+    );
+    irisRing.position.z = 0.016;
+    irisRing.renderOrder = 6;
+    lidGroup.add(irisRing);
+
+    const scanArc = new THREE.Mesh(
+      new THREE.RingGeometry(0.078, 0.095, 32, 1, 0, Math.PI * 1.20),
+      new THREE.MeshBasicMaterial({ color: 0x8b5cf6, transparent: true, opacity: 0.88, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false })
+    );
+    scanArc.position.z = 0.018;
+    scanArc.renderOrder = 6;
+    lidGroup.add(scanArc);
+
+    const pupilGroup = new THREE.Group();
+    lidGroup.add(pupilGroup);
+
+    const pupilMesh = new THREE.Mesh(
+      new THREE.CircleGeometry(0.036, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending, depthWrite: false })
+    );
+    pupilMesh.position.z = 0.024;
+    pupilMesh.renderOrder = 7;
+    pupilGroup.add(pupilMesh);
+
+    const eyeGlowMat = new THREE.ShaderMaterial({
+      vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform vec3 uColor;
+        uniform float uIntensity;
+        void main() {
+          float d = length((vUv - 0.5) * vec2(1.0, 1.2));
+          float g = exp(-d * d * 10.0) * uIntensity;
+          gl_FragColor = vec4(uColor, clamp(g, 0.0, 0.95));
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uColor: { value: new THREE.Color(0x00f0ff) }, uIntensity: { value: 1.05 } }
+    });
+    const eyeGlow = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.26), eyeGlowMat);
+    eyeGlow.position.z = 0.005;
+    eyeGlow.renderOrder = 4;
+    lidGroup.add(eyeGlow);
+
+    return {
+      eyeRoot, lidGroup, pupilGroup, irisRing, irisRingMat: irisRing.material,
+      scanArc, scanMat: scanArc.material, eyeGlowMat, frameMat: frameTube.mat
+    };
+  }
+  const leftEye = createRoboticEye(-1);
+  const rightEye = createRoboticEye(1);
+  headGroup.add(leftEye.eyeRoot);
+  headGroup.add(rightEye.eyeRoot);
+
+  /* Articulated Holographic Vocal Synthesizer (Ribbon + 13 Equalizer Bars) */
+  const mouthGroup = new THREE.Group();
+  mouthGroup.position.set(0, -0.375, 0.585);
+  headGroup.add(mouthGroup);
+
+  const MOUTH_SEGS = 24;
+  function createLipRibbon(colorHex) {
+    const pos = new Float32Array((MOUTH_SEGS + 1) * 2 * 3);
+    const idx = [];
+    for (let i = 0; i < MOUTH_SEGS; i++) {
+      const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+      idx.push(a, b, c, b, d, c);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    const mat = new THREE.MeshBasicMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: 0.98,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 7;
+    return { mesh, geo, pos };
+  }
+  const upperLip = createLipRibbon(0x00f0ff);
+  const lowerLip = createLipRibbon(0x00b4ff);
+  mouthGroup.add(upperLip.mesh);
+  mouthGroup.add(lowerLip.mesh);
+
+  const mouthCoreMat = new THREE.ShaderMaterial({
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform float uOpen, uBright;
+      uniform vec3 CYAN, BLUE, PURP;
+      void main() {
+        vec2 p = (vUv - 0.5) * 2.0;
+        float ellipse = p.x * p.x + (p.y * p.y) / max(0.04, uOpen * uOpen * 2.4);
+        float glow = exp(-ellipse * 2.5) * smoothstep(0.01, 0.12, uOpen);
+        vec3 col = mix(BLUE, CYAN, 0.70);
+        col = mix(col, PURP, abs(p.x) * 0.40);
+        gl_FragColor = vec4(col * uBright, clamp(glow * 0.88, 0.0, 0.92));
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uOpen: { value: 0 }, uBright: U.uBright, CYAN: U.CYAN, BLUE: U.BLUE, PURP: U.PURP }
+  });
+  const mouthCoreGlow = new THREE.Mesh(new THREE.PlaneGeometry(0.50, 0.26), mouthCoreMat);
+  mouthCoreGlow.position.z = -0.01;
+  mouthCoreGlow.renderOrder = 6;
+  mouthGroup.add(mouthCoreGlow);
+
+  const EQ_BARS = 13;
+  const eqBars = [];
+  const barGeo = new THREE.PlaneGeometry(0.020, 1.0);
+  for (let i = 0; i < EQ_BARS; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: i % 2 === 0 ? 0x00f0ff : 0x8b5cf6,
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const m = new THREE.Mesh(barGeo, mat);
+    const normX = (i - (EQ_BARS - 1) / 2) / ((EQ_BARS - 1) / 2);
+    m.position.set(normX * 0.165, 0, 0.014 - Math.abs(normX) * 0.015);
+    m.scale.y = 0.005;
+    m.renderOrder = 8;
+    mouthGroup.add(m);
+    eqBars.push({ mesh: m, mat, normX });
+  }
+
+  /* Ambient Holographic Particle Field */
+  const bgPos = new Float32Array(BG_PARTICLES * 3);
+  const bgSize = new Float32Array(BG_PARTICLES);
+  const bgAlpha = new Float32Array(BG_PARTICLES);
+  const bgColor = new Float32Array(BG_PARTICLES * 3);
+  const bgData = [];
+  (function createBgParticles() {
+    const pal = [[0.0, 0.95, 1.0], [0.0, 0.55, 1.0], [0.65, 0.35, 1.0]];
+    for (let i = 0; i < BG_PARTICLES; i++) {
+      bgColor.set(pal[i % 3], i * 3);
+      bgSize[i] = 0.020 + Math.random() * 0.038;
+      bgData.push({
+        a: Math.random() * Math.PI * 2,
+        r: 1.20 + Math.random() * 0.75,
+        sp: (0.07 + Math.random() * 0.18) * (Math.random() < 0.5 ? -1 : 1),
+        y: (Math.random() - 0.5) * 2.2,
+        ph: Math.random() * Math.PI * 2,
+        fs: 0.35 + Math.random() * 0.65
+      });
+    }
+  })();
+  const bgGeo = new THREE.BufferGeometry();
+  bgGeo.setAttribute("position", new THREE.BufferAttribute(bgPos, 3));
+  bgGeo.setAttribute("aSize", new THREE.BufferAttribute(bgSize, 1));
+  bgGeo.setAttribute("aAlpha", new THREE.BufferAttribute(bgAlpha, 1));
+  bgGeo.setAttribute("aColor", new THREE.BufferAttribute(bgColor, 3));
+  const bgPts = new THREE.Points(bgGeo, new THREE.ShaderMaterial({
+    vertexShader: `
+      attribute float aSize, aAlpha;
+      attribute vec3 aColor;
+      uniform float uPx;
+      varying float vA;
+      varying vec3 vC;
+      void main() {
+        vA = aAlpha;
+        vC = aColor;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = max(aSize * uPx / (-mv.z), 1.8);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vC;
+      varying float vA;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        gl_FragColor = vec4(vC, smoothstep(0.5, 0.04, d) * vA);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uPx: U.uPx }
+  }));
+  bgPts.frustumCulled = false;
+  bgPts.renderOrder = 1;
+  scene.add(bgPts);
+
+  themeUpdateHook = function() {
+    if (themeName === "red") {
+      U.BLUE.setHex(0xff1744); U.CYAN.setHex(0xff5252); U.PURP.setHex(0xffb300);
+    } else if (themeName === "sunset") {
+      U.BLUE.setHex(0xff6b00); U.CYAN.setHex(0xff007f); U.PURP.setHex(0xffd700);
+    } else if (customThemeHex) {
+      const c = new THREE.Color(customThemeHex);
+      U.BLUE.setHex(0x0088ff).lerp(c, 0.30); U.CYAN.copy(c); U.PURP.setHex(0x8b5cf6);
+    } else {
+      U.BLUE.setHex(0x0088ff); U.CYAN.setHex(0x00f0ff); U.PURP.setHex(0x8b5cf6);
+    }
+  };
+  themeUpdateHook();
+
+  function updateMouthWebGL(visTarget) {
+    const openAmt = mouth.open;
+    const halfW = 0.20 * mouth.width;
+    const maxGap = openAmt * 0.10;
+    const thick = 0.009;
+
+    for (let i = 0; i <= MOUTH_SEGS; i++) {
+      const normX = (i / MOUTH_SEGS) * 2.0 - 1.0;
+      const arch = Math.cos(normX * Math.PI * 0.5);
+      const cupid = Math.abs(normX) < 0.35 ? -0.007 * (1.0 - Math.abs(normX) / 0.35) : 0.0;
+      const cornerLift = Math.pow(Math.abs(normX), 2.2) * 0.015;
+      const x = normX * halfW;
+      const z = -Math.pow(Math.abs(normX), 2.0) * 0.055;
+      const upY = cornerLift + cupid + arch * maxGap * 0.38;
+      const loY = cornerLift - arch * maxGap * (0.95 + mouth.round * 0.28);
+      const taper = thick * (0.45 + 0.55 * arch);
+
+      const base = i * 6;
+      upperLip.pos[base]     = x; upperLip.pos[base + 1] = upY + taper; upperLip.pos[base + 2] = z;
+      upperLip.pos[base + 3] = x; upperLip.pos[base + 4] = upY - taper; upperLip.pos[base + 5] = z;
+
+      lowerLip.pos[base]     = x; lowerLip.pos[base + 1] = loY + taper; lowerLip.pos[base + 2] = z;
+      lowerLip.pos[base + 3] = x; lowerLip.pos[base + 4] = loY - taper; lowerLip.pos[base + 5] = z;
+    }
+    upperLip.geo.attributes.position.needsUpdate = true;
+    lowerLip.geo.attributes.position.needsUpdate = true;
+
+    mouthCoreMat.uniforms.uOpen.value = openAmt;
+    for (let i = 0; i < EQ_BARS; i++) {
+      const b = eqBars[i];
+      const centerEnv = Math.cos(b.normX * Math.PI * 0.5);
+      const freqMod = Math.abs(b.normX) < 0.35
+        ? (0.55 + 0.45 * visTarget.bass)
+        : (Math.abs(b.normX) < 0.70 ? (0.55 + 0.45 * visTarget.mid) : (0.45 + 0.55 * visTarget.high));
+      const microWave = 0.80 + 0.20 * Math.sin(time * 24.0 + i * 1.15);
+      b.mesh.scale.y = Math.max(0.002, (openAmt * 0.12 + audio.level * 0.08) * centerEnv * freqMod * microWave);
+      b.mesh.position.y = -openAmt * 0.024;
+      b.mat.opacity = (openAmt > 0.015 || audio.level > 0.02) ? Math.min(0.98, (openAmt + audio.level) * 1.45 * centerEnv) : 0.0;
+    }
+    jawGroup.rotation.x = openAmt * 0.12;
+    jawGroup.position.y = -0.28 - openAmt * 0.020;
+  }
+
+  let pxPerUnit = 300;
+  function handleResize() {
+    const w = Math.max(stage.clientWidth || window.innerWidth || 320, 64);
+    const h = Math.max(stage.clientHeight || window.innerHeight || 320, 64);
+    const pr = Math.min(window.devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(pr);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    const visH = VIS / Math.min(1, w / h);
+    const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    camera.position.z = visH / (2 * tan);
+    U.uCamZ.value = camera.position.z;
+    camera.updateProjectionMatrix();
+    pxPerUnit = h / visH;
+    U.uPx.value = h * pr / (2 * tan);
+    shadowEl.style.top = Math.round(h / 2 + pxPerUnit * 1.15) + "px";
+  }
+
+  window.addEventListener("resize", handleResize);
+  window.addEventListener("orientationchange", () => setTimeout(handleResize, 200));
+  if (window.ResizeObserver) new ResizeObserver(handleResize).observe(stage);
+
+  handleResize();
+  setOrbState("idle");
+
+  activeMode = "webgl";
+  let last = performance.now();
+  function animate(now) {
+    if (activeMode !== "webgl") return;
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+
+    const visTarget = stepSharedAnimation(dt, now);
+    const hoverY = Math.sin(time * 1.5) * 0.024;
+    const headScale = cur.scale * (1 + 0.009 * Math.sin(time * 1.4) + (state === "speaking" ? audio.level * 0.020 : 0));
+
+    headGroup.position.y = hoverY;
+    headGroup.scale.setScalar(headScale);
+    headGroup.rotation.y = headRotY;
+    headGroup.rotation.x = headRotX;
+
+    U.uTime.value = flow;
+    U.uAmp.value = audio.level + cur.think * 0.18;
+    U.uBass.value = audio.bass;
+    U.uHigh.value = audio.high;
+    U.uMid.value = audio.mid;
+    U.uCyan.value = cur.cyan;
+    U.uPurple.value = cur.purple;
+    U.uBright.value = cur.bright;
+    U.uThink.value = cur.think;
+    U.uListen.value = cur.listen;
+    holoBackdropMat.uniforms.uGlow.value = cur.glow;
+    headWireframe.material.opacity = 0.58 + cur.glow * 0.28 + (state === "listening" ? 0.18 : 0);
+
+    ring1.rotation.z += dt * (0.16 + cur.ring * 0.72);
+    ring2.rotation.z -= dt * (0.12 + cur.ring * 0.48);
+    ring1.material.uniforms.uAlpha.value = 0.45 + cur.ring * 0.38 + audio.level * 0.28;
+    ring2.material.uniforms.uAlpha.value = 0.30 + cur.ring * 0.28 + cur.think * 0.28;
+
+    const speechBoost = state === "speaking" ? audio.level * 0.38 : 0;
+    const listenPulse = state === "listening" ? 0.16 * Math.sin(time * 4.8) : 0;
+    const glowInt = (state === "idle" ? 0.90 : (state === "listening" ? 1.25 : (state === "thinking" ? 1.10 : 1.20))) + speechBoost + listenPulse;
+    const eyeCol = new THREE.Color().copy(U.CYAN).lerp(U.PURP, cur.think * 0.75);
+    const irisScale = 1.0 + cur.listen * 0.09 + speechBoost * 0.12;
+
+    [leftEye, rightEye].forEach((eye, idx) => {
+      const dir = idx === 0 ? 1 : -1;
+      eye.lidGroup.scale.y = lidScaleY;
+      eye.pupilGroup.position.x = gazeCurX;
+      eye.pupilGroup.position.y = gazeCurY;
+      eye.irisRing.scale.setScalar(irisScale);
+      eye.irisRingMat.color.copy(eyeCol);
+      eye.eyeGlowMat.uniforms.uColor.value.copy(eyeCol);
+      eye.eyeGlowMat.uniforms.uIntensity.value = glowInt;
+      eye.scanArc.rotation.z += dt * dir * (0.50 + cur.think * 3.6 + cur.listen * 1.2);
+      eye.scanMat.color.copy(cur.think > 0.3 ? U.PURP : U.BLUE);
+      eye.scanMat.opacity = 0.35 + cur.think * 0.65 + cur.listen * 0.35;
+      eye.frameMat.color.copy(cur.listen > 0.4 ? U.CYAN : U.BLUE);
+      eye.frameMat.opacity = 0.85 + cur.listen * 0.15 + cur.think * 0.15;
+    });
+
+    updateMouthWebGL(visTarget);
+
+    const P = bgPts.geometry.attributes;
+    const boost = 0.60 + cur.speed * 0.80 + cur.think * 0.95;
+    for (let i = 0; i < BG_PARTICLES; i++) {
+      const d = bgData[i];
+      d.a += d.sp * dt * boost;
+      const r = d.r + Math.sin(time * d.fs + d.ph) * 0.09 + audio.level * 0.08;
+      P.position.setXYZ(i, Math.cos(d.a) * r, d.y * 0.82 + Math.sin(d.a * 1.4 + d.ph) * 0.15, Math.sin(d.a) * r * 0.55 - 0.15);
+      P.aAlpha.setX(i, Math.pow(0.5 + 0.5 * Math.sin(time * d.fs * 1.5 + d.ph), 1.4) * (0.55 + cur.glow * 0.38));
+    }
+    P.position.needsUpdate = true;
+    P.aAlpha.needsUpdate = true;
+    shadowEl.style.width = Math.round(pxPerUnit * 1.40 * headScale) + "px";
+
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(animate);
+} catch (err) {
+  startCanvas2DFallback();
+}
+})();
+</script>
+</body>
+</html>

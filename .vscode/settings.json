@@ -1,0 +1,12 @@
+{
+  "files.exclude": {
+    "**/.gradle": true,
+    "**/.build-outputs": true,
+    "**/.kotlin": true
+  },
+  "search.exclude": {
+    "**/.gradle": true,
+    "**/.build-outputs": true,
+    "**/.kotlin": true
+  }
+}
